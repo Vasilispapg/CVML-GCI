@@ -11,8 +11,8 @@ spacy_eng = spacy.load('en_core_web_sm')
 
 class Vocabulary:
     def __init__(self, freq_threshold):
-        self.itos = {0: "<PAD>", 1: "<SOS>", 2: "<EOS>", 3: "<UNK>"}
-        self.stoi = {"<PAD>": 0, "<SOS>": 1, "<EOS>": 2, "<UNK>": 3}
+        self.itos = {0: "<pad>", 1: "<start>", 2: "<end>", 3: "<UNK>"}
+        self.stoi = {"<pad>": 0, "<start>": 1, "<end>": 2, "<UNK>": 3}
         self.freq_threshold = freq_threshold
 
     def __len__(self):
@@ -39,12 +39,10 @@ class Vocabulary:
                     self.itos[idx] = word
                     idx += 1
 
-    def numericalize(self, text):
-        tokenized_text = self.tokenizer_eng(text)
-
+    def numericalize(self, tokens):
         return [
             self.stoi[token] if token in self.stoi else self.stoi["<UNK>"]
-            for token in tokenized_text
+            for token in tokens
         ]
         
     def denumericalize(self, tensor):
@@ -59,17 +57,25 @@ class FlickrDataset(Dataset):
         self.captions = pd.read_csv(captions_file)['caption'].tolist()
         self.vocab = Vocabulary(freq_threshold)
         self.vocab.build_vocabulary(self.captions)
+        self.max_seq_len = max([len(self.vocab.tokenizer_eng(sentence)) for sentence in self.captions]) + 2  # <start> and <end>
+
         self.transform = transform or transforms.Compose([
             transforms.ToTensor(),
-            transforms.Resize((299,299)),
-            # bw
-            # transforms.Grayscale(num_output_channels=1),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-            # normalize to [0,1]
+            transforms.Resize((299, 299)),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
 
+
     def __len__(self):
-        return len(self.captions)
+        return len(self.imgs)
+    def remove_single_char_word(self, word_list):
+        return [word for word in word_list if len(word) > 1]
+
+    def preProccesCaption(self, caption):
+        caption_tokens = self.remove_single_char_word(self.vocab.tokenizer_eng(caption))
+        caption_tokens = ['<start>'] + [word for word in caption_tokens if word.isalpha()] + ['<end>']
+        caption_tokens += ['<pad>'] * (self.max_seq_len - len(caption_tokens))
+        return self.vocab.numericalize(caption_tokens)
 
     def __getitem__(self, index):
         img = Image.open(self.imgs[index]).convert('RGB')
@@ -77,15 +83,22 @@ class FlickrDataset(Dataset):
             img = self.transform(img)
 
         caption = self.captions[index]
-        numericalized_caption = [self.vocab.stoi["<SOS>"]] + self.vocab.numericalize(caption) + [self.vocab.stoi["<EOS>"]]
+        numericalized_caption = self.preProccesCaption(caption)
 
         return img, torch.tensor(numericalized_caption, dtype=torch.long)
-    
 
+    
 
 def collate_fn(data):
     images, captions = zip(*data)
     images = torch.stack(images, 0)
     # Pad the captions in the batch to have the same length
     captions = pad_sequence([torch.tensor(caption) for caption in captions], batch_first=True, padding_value=0)
+    return images, captions
+
+
+def collate_fnSimplyStack(batch):
+    images, captions = zip(*batch)
+    images = torch.stack(images, dim=0)
+    captions = torch.stack(captions, dim=0)  # Stack already-padded captions
     return images, captions

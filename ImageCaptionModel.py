@@ -3,24 +3,22 @@ import torch.nn as nn
 from EncoderDecoder import Encoder, Decoder
 from Xception import xception
 import time
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-
+from evaluation import evaluate_model
 
 class ImageCaptioningModel(nn.Module):
-    def __init__(self, embed_size, hidden_size, vocab_size, num_layers):
+    def __init__(self, vocab_size, max_seq_len):
         super().__init__()
         self.visual_model = xception(num_classes=1000)
         self.visual_model.fc = nn.Identity()  # Adapt final layer based on Xception architecture
         for param in self.visual_model.parameters():
-            param.requires_grad = False  # Freeze all parameters of the Xception model
+            param.requires_grad = True  # Freeze all parameters of the Xception model
         
-        self.encoder = Encoder()
-
-        self.decoder = Decoder(embed_size, hidden_size, vocab_size, num_layers)
+        self.encoder = Encoder(2048, 512)
+        self.decoder = Decoder(16, 4, vocab_size, 512, max_seq_len=max_seq_len)
 
     def forward(self, images, captions):
-        with torch.no_grad():
-            xception_features = self.visual_model(images)  # Extract features using Xception
+        # with torch.no_grad():
+        xception_features = self.visual_model(images)  # Extract features using Xception
             
         encoded_features = self.encoder(xception_features)
         # output [batch_size, 512*7*7] 
@@ -29,7 +27,7 @@ class ImageCaptioningModel(nn.Module):
         return output
 
 
-def train_loop(dataloader, model, loss_fn, optimizer, device):
+def train_loop(dataloader, model, loss_fn, optimizer, device,scheduler=None,val_loader=None):
     model.train()
     total_loss = 0
     num_batch=0
@@ -41,28 +39,35 @@ def train_loop(dataloader, model, loss_fn, optimizer, device):
         print(f"Batch: {num_batch}")
         img, captions = img.to(device), captions.to(device)
         
-        # Assuming token dropping or other preprocessing here if needed
-        outputs = model(img, captions[:, :-1])
-
-        outputs = outputs[:, :-1, :]  # Trim the last timestep
-
-        loss = loss_fn(outputs.reshape(-1, outputs.size(2)), captions[:, 1:].reshape(-1))
-        
         optimizer.zero_grad()
-        loss.backward()
         
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
+        outputs , padding_mask = model(img, captions)
+        # outputs [batch_size, seq_len-1, vocab_size]
+        output = outputs.permute(1, 2, 0)
+
+        loss = loss_fn(output,captions)
+
+        loss_masked = torch.mul(loss, padding_mask)
+
+        final_batch_loss = torch.sum(loss_masked)/torch.sum(padding_mask)
+
+        final_batch_loss.backward()
         optimizer.step()
-        
-        total_loss += loss.item()
-        loss_list.append(loss.item())
-        print(f"Loss: {loss.item():.4f}")
+                        
+        total_loss += final_batch_loss.item()
+        loss_list.append(final_batch_loss.item())
+        print(f"Loss: {final_batch_loss.item():.4f}")
         
         print(f"Time: {time.time()-timer}")
     
-    average_loss = total_loss / len(dataloader)
+    average_loss = final_batch_loss / len(dataloader)
+
+    
     
     print(f"Average Loss: {average_loss:.4f}")
+    
+    print('Evaluating model')
+    evaluate_model(device, model, val_loader)
     
     # save lostlist in a file
     with open("loss.txt", "a") as f:

@@ -1,7 +1,7 @@
 from ImageCaptionModel import ImageCaptioningModel,train_loop
 import torch
 import torch.nn as nn
-from DataLoaders import FlickrDataset, collate_fn
+from DataLoaders import FlickrDataset, collate_fnSimplyStack
 from torch.utils.data import DataLoader
 from argparse import ArgumentParser
 from plotloss import plot_loss
@@ -9,6 +9,7 @@ from predict import generate_caption
 import os
 from evaluation import evaluate_model
 from saveload import save_checkpoint, load_checkpoint
+import numpy as np
 
 def main():
 
@@ -19,8 +20,8 @@ def main():
 
     train_loader = DataLoader(
         dataset=train_dataset,
-        batch_size=64,
-        collate_fn=collate_fn,
+        batch_size=16,
+        collate_fn=collate_fnSimplyStack,
         shuffle=True, 
         pin_memory=True
     )
@@ -29,16 +30,14 @@ def main():
         dataset=test_dataset,
         batch_size=1,
         shuffle=True,
-        collate_fn=collate_fn,
-        
+        collate_fn=collate_fnSimplyStack,
         pin_memory=True
     )
 
     val_loader = DataLoader(
         dataset=val_dataset,
         batch_size=1,
-        collate_fn=collate_fn,
-        
+        collate_fn=collate_fnSimplyStack,
         shuffle=True,
         pin_memory=True
     )   
@@ -51,8 +50,9 @@ def main():
     args.add_argument('--gm', action='store_true', help='Get the model')
     args = args.parse_args()
     
-    icm = ImageCaptioningModel(embed_size=256, hidden_size=1024, vocab_size=len(dataset.vocab), num_layers=12)
+    icm = ImageCaptioningModel(vocab_size=len(dataset.vocab),max_seq_len=dataset.max_seq_len)
     model_path = 'model_checkpoint.pth.tar'
+    
     
     if args.gm:
         icm = load_checkpoint(torch.load(model_path), icm)
@@ -66,24 +66,22 @@ def main():
         train_dataset, _ = torch.utils.data.random_split(train_dataset, [10000, 20000])
         train_loader = DataLoader(
             dataset=train_dataset,
-            batch_size=64,
-            collate_fn=collate_fn,
-            shuffle=True,
+            batch_size=1,
+            collate_fn=collate_fnSimplyStack,
+            shuffle=False,
             pin_memory=True
         )
         icm=icm.to(device)
         
-        loss_fn = nn.CrossEntropyLoss(ignore_index=dataset.vocab.stoi["<PAD>"], reduction='mean', weight=None, size_average=None)
-        optimizer = torch.optim.Adam(icm.parameters(), lr=0.0001)
-        # rmsDrop
-        # optimizer= torch.optim.RMSprop(icm.parameters(), lr=0.0001, alpha=0.99, eps=1e-08, weight_decay=0, momentum=0, centered=False)
-        # SGD 
-        # optimizer = torch.optim.SGD(icm.parameters(), lr=0.002, momentum=0.9)
         
-        num_epochs = 8
+        optimizer = torch.optim.Adam(icm.parameters(), lr = 0.00001)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor = 0.8, patience=2, verbose = True)
+        criterion = torch.nn.CrossEntropyLoss(reduction='none', ignore_index=dataset.vocab.stoi['<pad>'])
+        num_epochs = 3
+        
         for epoch in range(num_epochs):
             print(f'Epoch: {epoch + 1}')
-            train_loop(train_loader, icm, loss_fn, optimizer, device,epoch+1)
+            train_loop(train_loader, icm, criterion, optimizer, device,scheduler,val_loader=val_loader)
             
             if(os.path.exists(model_path)):
                 os.remove(model_path)
@@ -100,11 +98,11 @@ def main():
         vocab = dataset.vocab
         icm = load_checkpoint(torch.load(model_path), icm)
         image_path = 'test.jpg'
-        caption = generate_caption(icm, image_path, vocab)
+        caption = generate_caption(icm, image_path, vocab,dataset.max_seq_len, device)
         print("Generated Caption:", caption)
     elif args.eval:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        evaluate_model(device, icm, test_loader)
+        evaluate_model(device, icm, test_loader, dataset.vocab)
     elif args.vl:
         plot_loss()
     
