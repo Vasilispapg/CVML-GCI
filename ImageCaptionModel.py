@@ -32,7 +32,7 @@ def train_loop(dataloader, model, loss_fn, optimizer, device,scheduler=None,val_
     total_loss = 0
     num_batch=0
     loss_list=[]
-    for img, captions in dataloader:
+    for img, captions,_ in dataloader:
         timer=time.time()
         print("==="*20)
         num_batch+=1

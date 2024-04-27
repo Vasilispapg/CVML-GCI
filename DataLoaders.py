@@ -80,25 +80,25 @@ class FlickrDataset(Dataset):
     def __getitem__(self, index):
         img = Image.open(self.imgs[index]).convert('RGB')
         if self.transform:
-            img = self.transform(img)
+            img_transformed = self.transform(img)
 
         caption = self.captions[index]
         numericalized_caption = self.preProccesCaption(caption)
 
-        return img, torch.tensor(numericalized_caption, dtype=torch.long)
+        return img_transformed, torch.tensor(numericalized_caption, dtype=torch.long), self.imgs[index]
 
     
 
 def collate_fn(data):
-    images, captions = zip(*data)
+    images, captions,img2display = zip(*data)
     images = torch.stack(images, 0)
     # Pad the captions in the batch to have the same length
     captions = pad_sequence([torch.tensor(caption) for caption in captions], batch_first=True, padding_value=0)
-    return images, captions
+    return images, captions,img2display
 
 
 def collate_fnSimplyStack(batch):
-    images, captions = zip(*batch)
+    images, captions,img2display = zip(*batch)
     images = torch.stack(images, dim=0)
     captions = torch.stack(captions, dim=0)  # Stack already-padded captions
-    return images, captions
+    return images, captions,img2display
