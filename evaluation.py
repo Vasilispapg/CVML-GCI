@@ -19,41 +19,29 @@ def generate_caption(output, vocab):
     return ' '.join(caption)
    
 
-def evaluate_model(device, model, data_loader,vocab):
-    """ Evaluate the model on a given dataset """
-    model.eval()  # Set the model to evaluation mode
+def evaluate_model(device, model, data_loader, vocab):
+    model.eval()
+    criterion = nn.CrossEntropyLoss()  # Ensure this uses any class weighting or reduction correctly
     model = model.to(device)
-    criterion = nn.CrossEntropyLoss()
-    
-    with torch.no_grad():  # Disable gradient calculation
+    with torch.no_grad():
         for i, (imgs, captions) in enumerate(data_loader):
             imgs = imgs.to(device)
             captions = captions.to(device)
             
-            # Forward pass: compute predicted outputs by passing inputs to the model
-            breakpoint()
-            outputs , padding_mask = model(imgs, captions)
-            # outputs [batch_size, seq_len-1, vocab_size]
-            output = outputs.permute(1, 2, 0)
-            # [2941,42]
+            outputs, padding_mask = model(imgs, captions)
+            outputs = outputs.permute(1, 2, 0)  # Correct dimension: [seq_len, vocab_size, batch_size]
 
-            loss = criterion(output,captions)
+            # Apply padding mask if necessary before loss calculation
+            if padding_mask is not None:
+                outputs = outputs * padding_mask.unsqueeze(1)  # Mask non-relevant predictions
 
-            loss_masked = torch.mul(loss, padding_mask)
+            loss = criterion(outputs.permute(0,2,1).contiguous().view(-1,2994), captions.contiguous().view(-1))
+            final_batch_loss = torch.sum(loss) / torch.sum(padding_mask)
 
-            final_batch_loss = torch.sum(loss_masked)/torch.sum(padding_mask)
-            
-            # write the caption
-            outputs=outputs.permute(1,2,0)
             print('Predicted:', generate_caption(outputs[0], vocab))
-            
-            # display image
-            plt.imshow(imgs[0].permute(1, 2, 0).cpu().numpy())
+            plt.imshow(imgs[0].cpu().permute(1, 2, 0))
             plt.show()
-            
-            # Output the loss for this batch
             print(f'Batch {i + 1}, Loss: {final_batch_loss.item()}')
-            
-            # Stop after processing 5 batches
+
             if i == 4:
                 break
