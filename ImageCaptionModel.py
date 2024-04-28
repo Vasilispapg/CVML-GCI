@@ -4,6 +4,8 @@ from EncoderDecoder import Encoder, Decoder
 from Xception import xception
 import time
 from evaluation import evaluate_model
+from saveload import save_checkpoint
+import os
 
 class ImageCaptioningModel(nn.Module):
     def __init__(self, vocab_size, max_seq_len):
@@ -40,7 +42,6 @@ def train_loop(dataloader, model, loss_fn, optimizer, device,scheduler=None,val_
         img, captions = img.to(device), captions.to(device)
         
         optimizer.zero_grad()
-        
         outputs , padding_mask = model(img, captions)
         # outputs [batch_size, seq_len-1, vocab_size]
         output = outputs.permute(1, 2, 0)
@@ -59,7 +60,21 @@ def train_loop(dataloader, model, loss_fn, optimizer, device,scheduler=None,val_
         print(f"Loss: {final_batch_loss.item():.4f}")
         
         print(f"Time: {time.time()-timer}")
-    
+        if(num_batch%100==0):
+            if(os.path.exists('model_checkpoint.pth.tar')):
+                os.remove('model_checkpoint.pth.tar')
+            state = {
+                'model': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+            }
+            save_checkpoint(state, 'model_checkpoint.pth.tar')
+            print("Model saved")
+            
+            if(os.path.exists('loss.txt')):
+                os.remove('loss.txt')
+            with open("loss.txt", "a") as f:
+                f.write(str(loss_list))
+                f.write("\n") 
     average_loss = final_batch_loss / len(dataloader)
 
     
@@ -70,6 +85,6 @@ def train_loop(dataloader, model, loss_fn, optimizer, device,scheduler=None,val_
     evaluate_model(device, model, val_loader)
     
     # save lostlist in a file
-    with open("loss.txt", "a") as f:
+    with open("loss.txt", "w+") as f:
         f.write(str(loss_list))
         f.write("\n")
