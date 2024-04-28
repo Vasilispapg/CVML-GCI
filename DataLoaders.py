@@ -52,12 +52,12 @@ class Vocabulary:
 
 
 class FlickrDataset(Dataset):
-    def __init__(self, images_dir, captions_file, freq_threshold=5, transform=None):
-        self.imgs = pd.read_csv(captions_file)['image'].map(lambda x: images_dir + x).tolist()
-        self.captions = pd.read_csv(captions_file)['caption'].tolist()
-        self.vocab = Vocabulary(freq_threshold)
-        self.vocab.build_vocabulary(self.captions)
-        self.max_seq_len = max([len(self.vocab.tokenizer_eng(sentence)) for sentence in self.captions]) + 2  # <start> and <end>
+    def __init__(self, df, vocab, transform=None, max_seq_len=42):
+        
+        self.df = df
+        self.vocab = vocab
+        self.max_seq_len = max_seq_len
+        # self.max_seq_len = max([len(self.vocab.tokenizer_eng(sentence)) for sentence in self.df['caption']]) + 2  # <start> and <end>
 
         self.transform = transform or transforms.Compose([
             transforms.ToTensor(),
@@ -65,9 +65,9 @@ class FlickrDataset(Dataset):
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
 
-
     def __len__(self):
-        return len(self.imgs)
+        return len(self.df)
+    
     def remove_single_char_word(self, word_list):
         return [word for word in word_list if len(word) > 1]
 
@@ -78,14 +78,13 @@ class FlickrDataset(Dataset):
         return self.vocab.numericalize(caption_tokens)
 
     def __getitem__(self, index):
-        img = Image.open(self.imgs[index]).convert('RGB')
+        img = Image.open(self.df['image'][index]).convert('RGB')
         if self.transform:
             img_transformed = self.transform(img)
 
-        caption = self.captions[index]
+        caption = self.df['caption'][index]
         numericalized_caption = self.preProccesCaption(caption)
-
-        return img_transformed, torch.tensor(numericalized_caption, dtype=torch.long), self.imgs[index]
+        return img_transformed, torch.tensor(numericalized_caption, dtype=torch.long), self.df['image'][index]
 
     
 
