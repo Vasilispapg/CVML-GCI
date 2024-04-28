@@ -5,10 +5,8 @@ from DataLoaders import FlickrDataset, collate_fnSimplyStack, Vocabulary
 from torch.utils.data import DataLoader
 from argparse import ArgumentParser
 from plotloss import plot_loss
-from predict import generate_caption
-import os
 from evaluation import evaluate_model
-from saveload import save_checkpoint, load_checkpoint
+from saveload import  load_checkpoint
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -41,7 +39,7 @@ def SplitDataset(df):
 
     train_loader = DataLoader(
         dataset=train_dataset,
-        batch_size=4,
+        batch_size=8,
         collate_fn=collate_fnSimplyStack,
         shuffle=True, 
         pin_memory=True
@@ -79,32 +77,43 @@ def main():
     icm = ImageCaptioningModel(vocab_size=len(vocab), max_seq_len=max_seq_len)
     model_path = 'model_checkpoint.pth.tar'
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
     args=get_arguments()
+    optimizer = torch.optim.Adam(icm.parameters(), lr=0.0001)
+    criterion = nn.CrossEntropyLoss(ignore_index=vocab.stoi['<pad>'])
     
     if args.gm:
-        icm = load_checkpoint(torch.load(model_path), icm)
+        icm,optimizer = load_checkpoint(torch.load(model_path), icm, optimizer)
+
     if args.train:
-        train_model(icm, train_loader, val_loader, device,vocab)
+        train_model(icm, train_loader, val_loader, device,vocab,optimizer,criterion)
     elif args.pred:
         # Load the model
-        caption = generate_caption(icm, 'test.jpg', vocab,max_seq_len, device)
-        print("Generated Caption:", caption)
+        df= pd.read_csv('Flickr8k/captions.txt',nrows=1)
+        df['image'][0]='test.jpg'
+        dataloader= DataLoader(
+            dataset=FlickrDataset(df,max_seq_len=max_seq_len, vocab=vocab),
+            batch_size=1,
+            collate_fn=collate_fnSimplyStack,
+            shuffle=False,
+            pin_memory=True
+        )
+        evaluate_model(device, icm, dataloader, vocab,criterion)
+
     elif args.eval:
-        evaluate_model(device, icm, val_loader, vocab)
+        evaluate_model(device, icm, val_loader, vocab,criterion)
     if args.vl:
         plot_loss()
     
     
-def train_model(icm, train_loader, val_loader, device,vocab):
+def train_model(icm, train_loader, val_loader, device,vocab,optimizer,criterion):
     print('Training model')
     print('Device:', torch.cuda.get_device_name(0))
     print('='*20)
     train_loop(model=icm.to(device), 
                dataloader=train_loader,
                val_loader=val_loader, 
-               loss_fn=nn.CrossEntropyLoss(ignore_index=vocab.stoi['<pad>']), 
-               optimizer=torch.optim.Adam(icm.parameters(), lr=0.00001), 
+               criterion=criterion,
+               optimizer=optimizer,
                device=device)
     print('Training complete')
     
