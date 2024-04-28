@@ -17,72 +17,28 @@ class Encoder(nn.Module):
         x = self.feature_projection(x)  # Project from input_dim to embed_size
         x = x.permute(1, 0, 2)  # [seq_len, batch_size, embed_size] for Transformer compatibility
         return x
-    
-"""class Decoder(nn.Module):
-    def __init__(self, embed_size, hidden_size, vocab_size, num_layers, dropout=0.5):
-        super(Decoder, self).__init__()
-        self.linear = nn.Linear(512*10*10, embed_size)
-        
-        self.embed_size = embed_size
-        self.hidden_size = hidden_size
-        self.vocab_size = vocab_size
-        self.num_layers = num_layers
-        
-        self.embedding = nn.Embedding(vocab_size, embed_size)
-        self.dropout = nn.Dropout(dropout)
-        
-        # Stack multiple LSTM layers
-        self.lstms = nn.ModuleList([
-            nn.LSTM(input_size=embed_size if i == 0 else hidden_size,
-                    hidden_size=hidden_size,
-                    num_layers=1,
-                    batch_first=True)
-            for i in range(num_layers)
-        ])
-        
-        
-        self.fc = nn.Linear(hidden_size, vocab_size)
-        
-    def forward(self, features, captions):
-        features = self.linear(features)
-        features = features.unsqueeze(1)  # Add time dimension for LSTM
-        
-        embeddings = self.embedding(captions)
-        x = torch.cat((features, embeddings), dim=1)
-        x = self.dropout(x)
-        
-        for i, lstm in enumerate(self.lstms):
-            if i > 0:
-                x += lstm_output  # Residual connection
-            lstm_output, _ = lstm(x)
-            x = self.dropout(lstm_output)
-        
-        outputs = self.fc(x)
-        
-        return outputs
-"""
-
-
 class PositionalEncoding(nn.Module):
 
-    def __init__(self, d_model, dropout=0.4,max_seq_len=42):
+    def __init__(self, d_model, dropout=0.4, max_seq_len=500):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
         
+        # Create positional encodings for max_seq_len positions
         pe = torch.zeros(max_seq_len, d_model)
         position = torch.arange(0, max_seq_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
+        pe = pe.unsqueeze(0)  # Shape: [1, max_seq_len, d_model]
         self.register_buffer('pe', pe)
-        
 
-    def forward(self, x, device='cuda'):
-        if self.pe.size(0) < x.size(0):
-            self.pe = self.pe.repeat(x.size(0), 1, 1).to(device)
-        self.pe = self.pe[:x.size(0), : , : ]
-        x = x + self.pe
+    def forward(self, x):
+        # Ensure positional encoding is on the correct device and can handle different batch sizes
+        # x: [batch_size, seq_len, d_model]
+        # Extend pe to match batch size in x
+        pe = self.pe[:, :x.size(1), :]  # [1, seq_len, d_model]
+        pe = pe.expand(x.size(0), -1, -1)  # [batch_size, seq_len, d_model]
+        x = x + pe
         return self.dropout(x)
     
 class Decoder(nn.Module):
