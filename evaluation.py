@@ -51,5 +51,5 @@ def evaluate_model(device, model, data_loader, vocab):
 
             print(f'Batch {i + 1}, Loss: {final_batch_loss.item()}')
 
-            if i == 4:
+            if i == 0:
                 break
