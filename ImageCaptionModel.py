@@ -16,7 +16,7 @@ class ImageCaptioningModel(nn.Module):
             param.requires_grad = True  # Freeze all parameters of the Xception model
         
         self.encoder = Encoder(2048, 512)
-        self.decoder = Decoder(16, 4, vocab_size, 512, max_seq_len=max_seq_len)
+        self.decoder = Decoder(n_head=8, n_decoder_layer=4, vocab_size=vocab_size, embedding_size=512, max_seq_len=max_seq_len)
 
     def forward(self, images, captions):
         # with torch.no_grad():
@@ -29,7 +29,7 @@ class ImageCaptioningModel(nn.Module):
         return output
 
 
-def train_loop(dataloader, model, loss_fn, optimizer, device,scheduler=None,val_loader=None):
+def train_loop(dataloader, model, criterion, optimizer, device,scheduler=None,val_loader=None):
     model.train()
     total_loss = 0
     num_batch=0
@@ -43,10 +43,12 @@ def train_loop(dataloader, model, loss_fn, optimizer, device,scheduler=None,val_
         
         optimizer.zero_grad()
         outputs , padding_mask = model(img, captions)
-        # outputs [batch_size, seq_len-1, vocab_size]
-        output = outputs.permute(1, 2, 0)
+        # outputs [seq_len-1, batch_size, vocab_size]
+        
+        # Assuming captions is [batch_size, seq_len] with actual word indices
 
-        loss = loss_fn(output,captions)
+        loss = criterion(outputs.view(-1, outputs.size(-1)), captions.contiguous().view(-1))  # Use all except first token as target
+
 
         loss_masked = torch.mul(loss, padding_mask)
 
