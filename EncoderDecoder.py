@@ -97,7 +97,7 @@ class Decoder(nn.Module):
         self.init_weights()
 
     def init_weights(self):
-        initrange = 0.1
+        initrange = 0.2
         self.embedding.weight.data.uniform_(-initrange, initrange)
         self.last_linear_layer.bias.data.zero_()
         self.last_linear_layer.weight.data.uniform_(-initrange, initrange)
