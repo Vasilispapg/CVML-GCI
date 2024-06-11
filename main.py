@@ -7,7 +7,7 @@ from argparse import ArgumentParser
 from plotloss import plot_loss
 from evaluation import evaluate_model
 from saveload import  load_checkpoint
-import numpy as np
+
 import pandas as pd
 from sklearn.model_selection import train_test_split
 
@@ -23,12 +23,22 @@ def SplitDataset(df):
     vocab.build_vocabulary(df['caption'].tolist())
    
     # get the max sequence length for all dataset
-    max_seq_len =  max([len(vocab.tokenizer_eng(sentence)) for sentence in df['caption']]) + 2
+    max_seq_len =  max([len(vocab.tokenizer_eng(sentence)) for sentence in df['caption']]) + 1
 
-    # Split groups into training and validation sets
-    train_groups, val_groups = train_test_split(list(grouped), test_size=0.4, random_state=42)
-    print(f"Number of training groups: {len(train_groups)}")
-    print(f"Number of validation groups: {len(val_groups)}")
+    # Split groups into training and validation sets ensuring equal length
+    all_groups = list(grouped)
+
+    # Split into training and validation sets
+    train_groups, val_groups = train_test_split(all_groups, test_size=0.5, random_state=42)
+
+    # Ensure equal length by truncating the larger set
+    min_len = min(len(train_groups), len(val_groups))
+    train_groups = train_groups[:min_len]
+    val_groups = val_groups[:min_len]
+
+
+    print(f"Training groups: {len(train_groups)}")
+    print(f"Validation groups: {len(val_groups)}")
 
     # Convert list of groups back into DataFrame
     train_df = pd.concat([group for _, group in train_groups]).reset_index(drop=True)
@@ -36,10 +46,11 @@ def SplitDataset(df):
 
     train_dataset = FlickrDataset(train_df,max_seq_len=max_seq_len, vocab=vocab)
     val_dataset = FlickrDataset(val_df,max_seq_len=max_seq_len, vocab=vocab)
+    
 
     train_loader = DataLoader(
         dataset=train_dataset,
-        batch_size=8,
+        batch_size=16,
         collate_fn=collate_fnSimplyStack,
         shuffle=True, 
         pin_memory=True
@@ -47,7 +58,7 @@ def SplitDataset(df):
 
     val_loader = DataLoader(
         dataset=val_dataset,
-        batch_size=1,
+        batch_size=16,
         collate_fn=collate_fnSimplyStack,
         shuffle=True,
         pin_memory=True
@@ -74,18 +85,24 @@ def main():
     train_loader, val_loader,max_seq_len,vocab = SplitDataset(df)
 
     args = get_arguments()
-    icm = ImageCaptioningModel(vocab_size=len(vocab), max_seq_len=max_seq_len)
     model_path = 'model_checkpoint.pth.tar'
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    args=get_arguments()
+    icm = ImageCaptioningModel(vocab_size=len(vocab), max_seq_len=max_seq_len)
     optimizer = torch.optim.Adam(icm.parameters(), lr=0.0001)
     criterion = nn.CrossEntropyLoss(ignore_index=vocab.stoi['<pad>'])
     
     if args.gm:
-        icm,optimizer = load_checkpoint(torch.load(model_path), icm, optimizer)
-
+        icm = load_checkpoint(torch.load(model_path), icm)
+        
     if args.train:
-        train_model(icm, train_loader, val_loader, device,vocab,optimizer,criterion)
+        train_model(icm, 
+                    train_loader, 
+                    val_loader, 
+                    device,
+                    vocab,
+                    optimizer,
+                    criterion,
+                    epochs=20)
     elif args.pred:
         # Load the model
         df= pd.read_csv('Flickr8k/captions.txt',nrows=1)
@@ -102,20 +119,27 @@ def main():
     elif args.eval:
         evaluate_model(device, icm, val_loader, vocab,criterion)
     if args.vl:
-        plot_loss()
+        plot_loss(type=2)
     
     
-def train_model(icm, train_loader, val_loader, device,vocab,optimizer,criterion):
+def train_model(icm, train_loader, val_loader, device, vocab, optimizer, criterion, epochs=3):
     print('Training model')
-    print('Device:', torch.cuda.get_device_name(0))
-    print('='*20)
-    train_loop(model=icm.to(device), 
+    print('Device:', device)
+    print('=' * 20)
+
+    # Ensure the model is on the correct device
+    icm = icm.to(device)
+
+    train_loop(model=icm, 
                dataloader=train_loader,
                val_loader=val_loader, 
                criterion=criterion,
                optimizer=optimizer,
-               device=device)
+               device=device,
+               vocab=vocab,
+               epochs=epochs)
     print('Training complete')
+
     
 if __name__ == "__main__":
     main()
