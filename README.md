@@ -55,9 +55,3 @@ python plot_loss.py
 
 ## Contributing
 Contributions are welcome. Please fork the repository and submit pull requests with your suggested changes.
-
-## License
-This project is open-sourced under the MIT license.
-
-## Authors
-- [Your Name] - Initial work
